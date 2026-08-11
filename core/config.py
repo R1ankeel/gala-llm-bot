@@ -14,6 +14,7 @@ class Config:
     max_tokens: int
     character_path: str
     llm_think: bool = False
+    prompt_budget_chars: int = 6000
 
 
 def _parse_env_file(env_path: str) -> dict:
@@ -57,6 +58,13 @@ def load_config(env_path: str = ".env") -> Config:
     if max_tokens <= 0:
         raise ConfigError("MAX_TOKENS в .env должен быть больше нуля.")
 
+    try:
+        prompt_budget_chars = int(values.get("PROMPT_BUDGET_CHARS", "6000"))
+    except ValueError as err:
+        raise ConfigError(f"В .env кривое число: {err}") from err
+    if prompt_budget_chars <= 0:
+        raise ConfigError("PROMPT_BUDGET_CHARS в .env должен быть больше нуля.")
+
     llm_think = values.get("LLM_THINK", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     return Config(
@@ -66,4 +74,5 @@ def load_config(env_path: str = ".env") -> Config:
         max_tokens=max_tokens,
         character_path=values.get("CHARACTER_PATH", "./character/character.yaml"),
         llm_think=llm_think,
+        prompt_budget_chars=prompt_budget_chars,
     )
