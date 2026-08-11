@@ -4,8 +4,7 @@
 персонажа, транспорт к LLM, многослойный промпт, история диалога,
 guard от «ассистентских» задач, веб-поиск фактов/культуры с
 уклонением от погоды и науки, расписание, SQLite-память о
-собеседниках, и две точки входа в CLI. Реальных данных пока нет
-только у отношений (Этап 7) — вместо них работает заглушка.
+собеседниках, отношения с собеседником, и две точки входа в CLI.
 
 ## Поток данных (одна реплика)
 
@@ -22,10 +21,14 @@ cli.py (--to/--msg или REPL)
 память: log_message → apply_realtime_updates → (экстракция фактов)   # Этап 6
     │  (падение цепочки памяти не роняет диалог)
     ▼
+отношения: count_message → раз в N сообщений LLM-оценка → apply_delta   # Этап 7
+    │  (пишется в relationship; падение оценки не роняет диалог)
+    ▼
 PromptBuilder.build(nick, message, guard_category?/deflect_category?/search_context?)
     │  запрашивает слои у провайдеров
     ▼
-state_provider (ScheduleProvider) / memory_provider (FactsMemoryProvider) / history
+state_provider (CompositeStateProvider: ScheduleProvider + RelationshipProvider)
+  / memory_provider (FactsMemoryProvider) / history
     │
     ▼
 system_prompt (identity → guard/deflect/search → state → memory → history + инструкция)
@@ -43,7 +46,8 @@ response_formatter.format_reply(raw, nick)  →  "Ник, реплика"
 ```
 
 Подробности поискового флоу — в `docs/search.md`, флоу отказа — в
-`docs/task_guard.md`, флоу памяти — в `docs/memory.md`.
+`docs/task_guard.md`, флоу памяти — в `docs/memory.md`, отношения — в
+`docs/relationship.md`.
 
 ## Компоненты
 
@@ -53,6 +57,11 @@ response_formatter.format_reply(raw, nick)  →  "Ник, реплика"
 | `core/config.py` | Загрузка `.env` (Ollama URL, модель, температура, бюджет промпта). Критичные поля без дефолта → явная ошибка. |
 | `core/layers.py` | Протоколы `StateProvider` и `MemoryProvider` + заглушки. Реальные реализации (Этапы 5–7) подключаются заменой одного аргумента конструктора. |
 | `core/schedule_provider.py` | Реальный `StateProvider` (Этап 5): «чем занят» по времени суток из `config/schedule.yaml`. Валидация конфига при старте, время от UTC + сдвиг из конфига. |
+| `core/state/composite_state_provider.py` | Объединение нескольких `StateProvider` в один (расписание + отношения), провайдеры тестируются и порознь, и вместе (Этап 7). |
+| `core/relationship/levels.py` | Единственное место описания шкалы уровней 0–9 и их названий (Этап 7). |
+| `core/relationship/store.py` | SQLite `relationship` + `relationship_log` на том же conn, что у памяти; `apply_delta` с прогрессом и границами (Этап 7). |
+| `core/relationship/evaluator.py` | Раз в N сообщений LLM-оценка тона (только сообщения боту), клампинг дельты, фолбэки (Этап 7). |
+| `core/relationship/relationship_provider.py` | Реальный `StateProvider`: словесная инструкция по тону, нейтраль = `None`, никаких чисел в промпте (Этап 7). |
 | `core/dialogue_history.py` | `DialogueHistory` — in-memory история одного пользователя, обрезается по `max_turns`. |
 | `core/prompt_builder.py` | Многослойный сборщик с бюджетом и двумя разными порядками (рендер / отбрасывание). |
 | `core/task_guard.py` | Классификатор «ассистентских» задач + пост-валидатор + canned-отказы (Этап 3). |
@@ -77,9 +86,11 @@ response_formatter.format_reply(raw, nick)  →  "Ник, реплика"
 - Этап 6 (память о фактах) — реализован: `FactsMemoryProvider`
   (поверх SQLite) подставлен вместо `StubMemoryProvider` в `cli.py`.
   Персистентная история (`global_chat`) — побочный продукт этапа.
-- Этап 7 (отношения) — класс, реализующий `StateProvider` (или
-  `CompositeStateProvider` поверх schedule), подставляется рядом
-  с `ScheduleProvider`.
+- Этап 7 (отношения) — реализован: `CompositeStateProvider`
+  (ScheduleProvider + RelationshipProvider) подставлен вместо
+  одиночного `ScheduleProvider` в `cli.py`. Оценка тона — отдельное
+  звено `RelationshipEvaluator` на write-пути, клампинг и фолбэки не
+  роняют диалог.
 
 `PromptBuilder` при этом не меняется — он зависит только от
 интерфейсов из `core/layers.py`.

@@ -15,6 +15,9 @@ from core.memory.memory_provider import FactsMemoryProvider
 from core.memory.realtime_profile import apply_realtime_updates
 from core.memory.store import MemoryStore
 from core.prompt_builder import PromptBuilder
+from core.relationship.evaluator import RelationshipEvaluator
+from core.relationship.relationship_provider import RelationshipProvider
+from core.relationship.store import RelationshipStore
 from core.response_formatter import format_reply
 from core.schedule_provider import ScheduleProvider, ScheduleConfigError
 from core.search_classifier import SearchVerdict, classify_query
@@ -24,6 +27,7 @@ from core.search_guard import (
     looks_like_hallucinated_fact,
     pick_deflect_line,
 )
+from core.state.composite_state_provider import CompositeStateProvider
 from core.task_guard import (
     classify_task_request,
     looks_like_compliance,
@@ -37,6 +41,7 @@ DEFAULT_SEARCH_KEYWORDS_PATH = "config/search_keywords.yaml"
 DEFAULT_SCHEDULE_PATH = "config/schedule.yaml"
 DEFAULT_MEMORY_CONFIG_PATH = "config/memory.yaml"
 DEFAULT_GENDER_HEURISTICS_PATH = "config/gender_heuristics.yaml"
+DEFAULT_RELATIONSHIP_CONFIG_PATH = "config/relationship.yaml"
 DEFAULT_DB_PATH = "data/memory.db"
 
 
@@ -60,12 +65,32 @@ def load_gender_heuristics(path: str = DEFAULT_GENDER_HEURISTICS_PATH) -> dict:
         return yaml.safe_load(fh)
 
 
+def load_relationship_config(path: str = DEFAULT_RELATIONSHIP_CONFIG_PATH) -> dict:
+    with open(path, "r", encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
 @dataclass
 class MemoryRuntime:
     store: MemoryStore
     extractor: FactsExtractor
     memory_provider: FactsMemoryProvider
     memory_config: dict
+
+
+@dataclass
+class RelationshipRuntime:
+    store: RelationshipStore
+    evaluator: RelationshipEvaluator
+    provider: RelationshipProvider
+    config: dict
+
+
+@dataclass
+class Runtime:
+    memory: MemoryRuntime
+    relationship: RelationshipRuntime
+    state_provider: CompositeStateProvider
 
 
 def _make_client(config: Config) -> LLMClient:
@@ -101,10 +126,44 @@ def make_memory_runtime(
     )
 
 
-def _make_builder(config: Config, character, memory_provider) -> PromptBuilder:
+def make_runtime(
+    config: Config,
+    character,
+    llm_client: LLMClient,
+    store: MemoryStore | None = None,
+    memory: MemoryRuntime | None = None,
+) -> Runtime:
+    memory = memory or make_memory_runtime(config, character, llm_client, store=store)
+    relationship_config = load_relationship_config()
+    relationship_store = RelationshipStore(memory.store.conn)
+    evaluator = RelationshipEvaluator(
+        relationship_store,
+        memory.store,
+        llm_client,
+        config=relationship_config,
+        character_name=character.name,
+    )
+    relationship_provider = RelationshipProvider(relationship_store)
+    relationship = RelationshipRuntime(
+        store=relationship_store,
+        evaluator=evaluator,
+        provider=relationship_provider,
+        config=relationship_config,
+    )
+    state_provider = CompositeStateProvider(
+        [ScheduleProvider(DEFAULT_SCHEDULE_PATH), relationship_provider]
+    )
+    return Runtime(
+        memory=memory,
+        relationship=relationship,
+        state_provider=state_provider,
+    )
+
+
+def _make_builder(config: Config, character, memory_provider, state_provider) -> PromptBuilder:
     return PromptBuilder(
         character,
-        ScheduleProvider(DEFAULT_SCHEDULE_PATH),
+        state_provider,
         memory_provider,
         budget_chars=config.prompt_budget_chars,
     )
@@ -169,6 +228,17 @@ def _apply_guard_fallback(character, raw: str, task_verdict, search_verdict: Sea
     return raw
 
 
+def _run_relationship_evaluation(runtime: Runtime, to: str) -> None:
+    """Считает сообщение и (по накоплению) оценивает отношение; сбой не
+    роняет диалог. Вызывается ДО генерации, чтобы state-слой в этом же
+    ответе уже видел свежий уровень."""
+    try:
+        runtime.relationship.evaluator.count_message(to)
+        runtime.relationship.evaluator.maybe_evaluate(to)
+    except Exception as err:  # noqa: BLE001
+        logger.warning("relationship evaluation failed, continuing without it: %s", err)
+
+
 def _respond(
     config: Config,
     character,
@@ -180,10 +250,12 @@ def _respond(
     search_client: SearchClient | None = None,
     store: MemoryStore | None = None,
     memory: MemoryRuntime | None = None,
+    runtime: Runtime | None = None,
 ) -> str:
     client = client or _make_client(config)
-    memory = memory or make_memory_runtime(config, character, client, store=store)
-    _run_memory_pipeline(memory, to, msg)
+    runtime = runtime or make_runtime(config, character, client, store=store, memory=memory)
+    _run_memory_pipeline(runtime.memory, to, msg)
+    _run_relationship_evaluation(runtime, to)
 
     task_verdict = classify_task_request(msg, task_keywords)
     search_verdict = SearchVerdict(action="none", category=None)
@@ -191,7 +263,9 @@ def _respond(
     if not task_verdict.triggered:
         search_verdict = classify_query(msg, search_keywords)
 
-    builder = _make_builder(config, character, memory.memory_provider)
+    builder = _make_builder(
+        config, character, runtime.memory.memory_provider, runtime.state_provider
+    )
     system_prompt = _build_system_prompt(
         builder, to, msg, task_verdict, search_verdict, search_client
     )
@@ -212,6 +286,7 @@ def run_once(
     search_client: SearchClient | None = None,
     store: MemoryStore | None = None,
     memory: MemoryRuntime | None = None,
+    runtime: Runtime | None = None,
 ) -> str:
     return _respond(
         config,
@@ -224,6 +299,7 @@ def run_once(
         search_client=search_client,
         store=store,
         memory=memory,
+        runtime=runtime,
     )
 
 
@@ -237,8 +313,10 @@ def run_repl(
     store: MemoryStore | None = None,
 ) -> int:
     client = client or _make_client(config)
-    memory = make_memory_runtime(config, character, client, store=store)
-    builder = _make_builder(config, character, memory.memory_provider)
+    runtime = make_runtime(config, character, client, store=store)
+    builder = _make_builder(
+        config, character, runtime.memory.memory_provider, runtime.state_provider
+    )
     history = DialogueHistory()
 
     print(f"REPL-режим. Крутимся против {nick}. Пустая строка или Ctrl+C/Ctrl+D — выход.")
@@ -252,7 +330,8 @@ def run_repl(
             break
 
         history.add("user", line)
-        _run_memory_pipeline(memory, nick, line)
+        _run_memory_pipeline(runtime.memory, nick, line)
+        _run_relationship_evaluation(runtime, nick)
         task_verdict = classify_task_request(line, task_keywords)
         search_verdict = SearchVerdict(action="none", category=None)
         if not task_verdict.triggered:
@@ -294,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
         task_keywords = load_guard_keywords()
         search_keywords = load_search_keywords()
         ScheduleProvider(DEFAULT_SCHEDULE_PATH)
+        load_relationship_config()
         _make_store(config)
     except (ConfigError, OSError, ScheduleConfigError) as err:
         print(f"[config] {err}", file=sys.stderr)
