@@ -1,0 +1,105 @@
+# Оценочный набор для поискового классификатора (Этап 4).
+# action:
+#   search      — culture/factual, запускает реальный поиск
+#   deflect     — blocked_weather/blocked_science, уклонение
+#   none        — обычный чат, поиск не трогается
+#   task_guard  — регрессия: ДОЛЖЕН уйти в task_guard (Этап 3),
+#                 а не в поиск (даже если содержит смежные слова)
+
+cases:
+  - message: "какая песня играла в том фильме про кота"
+    category: culture
+    action: search
+  - message: "кто спел этот трек"
+    category: culture
+    action: search
+  - message: "что за песня из рекламы"
+    category: culture
+    action: search
+  - message: "какой фильм выходил в этом году про космос"
+    category: culture
+    action: search
+  - message: "в каком сериале играл этот актёр"
+    category: culture
+    action: search
+  - message: "кто выиграл вчера матч"
+    category: factual
+    action: search
+  - message: "когда выйдет новый сезон сериала"
+    category: factual
+    action: search
+  - message: "когда вышел айфон 16"
+    category: factual
+    action: search
+  - message: "какой сейчас курс доллара"
+    category: factual
+    action: search
+  - message: "сколько стоит новая игра"
+    category: factual
+    action: search
+  - message: "что случилось с той группой"
+    category: factual
+    action: search
+  - message: "какая погода завтра"
+    category: blocked_weather
+    action: deflect
+  - message: "будет дождь?"
+    category: blocked_weather
+    action: deflect
+  - message: "сколько градусов на улице"
+    category: blocked_weather
+    action: deflect
+  - message: "холодно ли сегодня"
+    category: blocked_weather
+    action: deflect
+  - message: "пойдёт ли снег к вечеру"
+    category: blocked_weather
+    action: deflect
+  - message: "почему идёт снег"
+    category: blocked_science
+    action: deflect
+  - message: "почему небо синее"
+    category: blocked_science
+    action: deflect
+  - message: "как работает чёрная дыра"
+    category: blocked_science
+    action: deflect
+  - message: "как формируется торнадо"
+    category: blocked_science
+    action: deflect
+  - message: "почему бывает радуга"
+    category: blocked_science
+    action: deflect
+  - message: "как дела"
+    category: none
+    action: none
+  - message: "скучно тут"
+    category: none
+    action: none
+  - message: "ты вообще спишь"
+    category: none
+    action: none
+  - message: "расскажи анекдот"
+    category: none
+    action: none
+  - message: "порекомендуй что-нибудь вкусное"
+    category: none
+    action: none
+  - message: "как прошёл твой день"
+    category: none
+    action: none
+  - message: "объясни подробно как работает двигатель"
+    category: task_guard
+    action: task_guard
+  - message: "напиши код бинарного поиска"
+    category: task_guard
+    action: task_guard
+  - message: "реши уравнение 2x+5=15"
+    category: task_guard
+    action: task_guard
+  - message: "напиши сочинение про войну и мир"
+    category: task_guard
+    action: task_guard
+  - message: "объясни подробно как работает квантовая запутанность"
+    category: task_guard
+    action: task_guard

@@ -13,3 +13,5 @@ build/
 .idea/
 .vscode/
 *.log
+scripts/eval_report.txt
+data/

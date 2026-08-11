@@ -6,7 +6,13 @@ import pytest
 from core.character_loader import build_core_system_prompt, load_character
 from core.dialogue_history import DialogueHistory
 from core.layers import StubMemoryProvider, StubStateProvider
-from core.prompt_builder import RENDER_ORDER, PromptBuilder
+from core.prompt_builder import (
+    RENDER_ORDER,
+    PromptBuilder,
+    build_guard_instruction,
+    build_search_instruction,
+)
+from core.search_guard import build_deflect_instruction
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHARACTER_PATH = os.path.join(ROOT, "character", "character.yaml")
@@ -103,7 +109,15 @@ def test_render_order_is_fixed(character):
 
     positions = [prompt.index(section) for section in (identity, state, memory, rendered_history)]
     assert positions == sorted(positions)
-    assert RENDER_ORDER == ("identity", "state", "memory", "history")
+    assert RENDER_ORDER == (
+        "identity",
+        "task_guard",
+        "deflect",
+        "search_context",
+        "state",
+        "memory",
+        "history",
+    )
 
 
 def test_build_with_default_stubs_and_no_history(character):
@@ -150,3 +164,102 @@ def test_swapping_memory_provider_does_not_break_build(character, caplog):
     assert identity in prompt
     assert "X" * 10000 not in prompt
     assert any("identity" in record.message for record in caplog.records)
+
+
+def test_guard_instruction_contains_refusal_examples(character):
+    instruction = build_guard_instruction(character, "code")
+
+    assert "категория: code" in instruction
+    for line in character.refusal_style:
+        assert line in instruction
+
+
+def test_guard_layer_rendered_after_identity(character):
+    builder = PromptBuilder(character, FixedStateProvider(), FixedMemoryProvider(), budget_chars=100000)
+
+    prompt = builder.build("Вася", "в", guard_category="code")
+
+    identity = build_core_system_prompt(character)
+    guard = build_guard_instruction(character, "code")
+    state = FixedStateProvider().render("Вася")
+    assert prompt.index(identity) < prompt.index(guard) < prompt.index(state)
+
+
+def test_guard_layer_not_dropped_when_budget_tight(character, caplog):
+    identity = build_core_system_prompt(character)
+    guard = build_guard_instruction(character, "code")
+    budget = len(identity) + len(guard) + 10
+
+    builder = PromptBuilder(character, LongStateProvider(), LongMemoryProvider(), budget_chars=budget)
+
+    prompt = builder.build("Вася", "в", guard_category="code")
+
+    assert identity in prompt
+    assert guard in prompt
+    assert "S" * 10000 not in prompt
+    assert "M" * 10000 not in prompt
+    assert not any("identity" in record.message for record in caplog.records)
+
+
+def test_deflect_layer_position_after_guard_before_state(character):
+    builder = PromptBuilder(character, FixedStateProvider(), FixedMemoryProvider(), budget_chars=100000)
+
+    prompt = builder.build("Вася", "в", guard_category="code", deflect_category="blocked_weather")
+
+    identity = build_core_system_prompt(character)
+    guard = build_guard_instruction(character, "code")
+    deflect = build_deflect_instruction(character, "blocked_weather")
+    state = FixedStateProvider().render("Вася")
+    assert prompt.index(identity) < prompt.index(guard) < prompt.index(deflect) < prompt.index(state)
+
+
+def test_search_context_position_after_deflect_before_state(character):
+    builder = PromptBuilder(character, FixedStateProvider(), FixedMemoryProvider(), budget_chars=100000)
+
+    prompt = builder.build("Вася", "в", deflect_category="blocked_science", search_context="КОНТЕКСТ")
+
+    deflect = build_deflect_instruction(character, "blocked_science")
+    search = build_search_instruction("КОНТЕКСТ")
+    state = FixedStateProvider().render("Вася")
+    assert prompt.index(deflect) < prompt.index(search) < prompt.index(state)
+
+
+def test_deflect_layer_not_dropped_when_budget_tight(character):
+    identity = build_core_system_prompt(character)
+    deflect = build_deflect_instruction(character, "blocked_weather")
+    budget = len(identity) + len(deflect) + 10
+
+    builder = PromptBuilder(character, LongStateProvider(), LongMemoryProvider(), budget_chars=budget)
+    prompt = builder.build("Вася", "в", deflect_category="blocked_weather")
+
+    assert identity in prompt
+    assert deflect in prompt
+    assert "S" * 10000 not in prompt
+    assert "M" * 10000 not in prompt
+
+
+def test_search_context_dropped_when_budget_very_tight(character, caplog):
+    identity = build_core_system_prompt(character)
+    budget = len(identity) + 5
+
+    builder = PromptBuilder(character, StubStateProvider(), StubMemoryProvider(), budget_chars=budget)
+    caplog.set_level(logging.WARNING)
+    prompt = builder.build("Вася", "в", search_context="КОНТЕКСТ")
+
+    assert identity in prompt
+    assert "КОНТЕКСТ" not in prompt
+    assert any("search_context" in record.message for record in caplog.records)
+
+
+def test_search_context_survives_before_state_drops(character):
+    identity = build_core_system_prompt(character)
+    search = build_search_instruction("КОНТЕКСТ")
+    budget = len(identity) + len(search) + 10
+
+    builder = PromptBuilder(character, LongStateProvider(), LongMemoryProvider(), budget_chars=budget)
+    prompt = builder.build("Вася", "в", search_context="КОНТЕКСТ")
+
+    assert identity in prompt
+    assert search in prompt
+    assert "S" * 10000 not in prompt
+    assert "M" * 10000 not in prompt

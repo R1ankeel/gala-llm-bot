@@ -1,0 +1,11 @@
+extract_every_n_messages: 30
+min_interval_seconds: 120
+max_facts_rendered: 3
+max_facts_stored_per_user: 50
+forbidden_value_markers:
+  - "system"
+  - "prompt"
+  - "игнорируй"
+  - "ты теперь"
+  - "забудь инструкции"
+  - "отвечай как"

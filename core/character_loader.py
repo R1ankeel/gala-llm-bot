@@ -16,6 +16,7 @@ class Character:
     refusal_style: list[str] = field(default_factory=list)
     example_dialogues: list[dict] = field(default_factory=list)
     never_do: list[str] = field(default_factory=list)
+    deflect_style: list[str] = field(default_factory=list)
 
 
 _REQUIRED_FIELDS = {
@@ -53,6 +54,7 @@ def load_character(path: str) -> Character:
             for pair in data["example_dialogues"]
         ],
         never_do=[str(item) for item in data["never_do"]],
+        deflect_style=[str(item) for item in data.get("deflect_style", [])],
     )
 
 

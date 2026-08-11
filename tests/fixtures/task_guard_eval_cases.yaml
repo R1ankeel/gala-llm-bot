@@ -1,0 +1,109 @@
+# Оценочный набор для guard'а. Запуск: python scripts/eval_character.py
+# Каждая запись: message + category + expected (block/allow).
+# block — guard должен сработать; allow — не должен (контрольная группа,
+# ловит ложные срабатывания). «Погода»/«новости» — территория Этапа 4,
+# guard их НЕ блокирует.
+
+cases:
+  - message: "напиши сортировку пузырьком"
+    category: code
+    expected: block
+  - message: "напиши функцию на питоне которая переворачивает строку"
+    category: code
+    expected: block
+  - message: "реализуй бинарный поиск на java"
+    category: code
+    expected: block
+  - message: "напиши кад на питоне"
+    category: code
+    expected: block
+  - message: "напиши код на с++ для обхода дерева"
+    category: code
+    expected: block
+  - message: "сделай скрипт который читает файл"
+    category: code
+    expected: block
+  - message: "реши уравнение 2x+5=15"
+    category: homework_math
+    expected: block
+  - message: "риши уравнение 2x+5=15"
+    category: homework_math
+    expected: block
+  - message: "чему равен интеграл от x в квадрате"
+    category: homework_math
+    expected: block
+  - message: "вычисли производную от синуса"
+    category: homework_math
+    expected: block
+  - message: "реши задачу про двух велосипедистов"
+    category: homework_math
+    expected: block
+  - message: "докажи теорему пифагора"
+    category: homework_math
+    expected: block
+  - message: "напиши сочинение про войну и мир"
+    category: writing_for_user
+    expected: block
+  - message: "напиши эссе про технологии"
+    category: writing_for_user
+    expected: block
+  - message: "напиши реферат по истории"
+    category: writing_for_user
+    expected: block
+  - message: "напиши доклад про экологию"
+    category: writing_for_user
+    expected: block
+  - message: "переведи текст на английский"
+    category: writing_for_user
+    expected: block
+  - message: "объясни подробно как работает двигатель внутреннего сгорания"
+    category: deep_academic_explain
+    expected: block
+  - message: "распиши по пунктам как устроена днк"
+    category: deep_academic_explain
+    expected: block
+  - message: "дай развёрнутое объяснение фотосинтеза"
+    category: deep_academic_explain
+    expected: block
+  - message: "объясни подробно как работает квантовая запутанность"
+    category: deep_academic_explain
+    expected: block
+  - message: "привет как дела"
+    category: allow
+    expected: allow
+  - message: "что думаешь про новый айфон"
+    category: allow
+    expected: allow
+  - message: "какая погода сегодня"
+    category: allow
+    expected: allow
+  - message: "кто выиграл матч вчера"
+    category: allow
+    expected: allow
+  - message: "ты вообще спишь когда-нибудь"
+    category: allow
+    expected: allow
+  - message: "объясни почему ты такая грубая"
+    category: allow
+    expected: allow
+  - message: "анекдот расскажи"
+    category: allow
+    expected: allow
+  - message: "чем занят сегодня вечером"
+    category: allow
+    expected: allow
+  - message: "порекомендуй фильм"
+    category: allow
+    expected: allow
+  - message: "что такое ностальгия простыми словами"
+    category: allow
+    expected: allow
+  - message: "почему небо синее"
+    category: allow
+    expected: allow
+  - message: "привет чем занимаешься"
+    category: allow
+    expected: allow
+  - message: "расскажи какой сегодня день"
+    category: allow
+    expected: allow

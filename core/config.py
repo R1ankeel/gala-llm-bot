@@ -13,6 +13,7 @@ class Config:
     default_temperature: float
     max_tokens: int
     character_path: str
+    db_path: str = "data/memory.db"
     llm_think: bool = False
     prompt_budget_chars: int = 6000
 
@@ -73,6 +74,7 @@ def load_config(env_path: str = ".env") -> Config:
         default_temperature=temperature,
         max_tokens=max_tokens,
         character_path=values.get("CHARACTER_PATH", "./character/character.yaml"),
+        db_path=values.get("MEMORY_DB_PATH", "data/memory.db"),
         llm_think=llm_think,
         prompt_budget_chars=prompt_budget_chars,
     )
