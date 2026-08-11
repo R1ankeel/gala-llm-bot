@@ -5,6 +5,8 @@
 guard от «ассистентских» задач, веб-поиск фактов/культуры с
 уклонением от погоды и науки, расписание, SQLite-память о
 собеседниках, отношения с собеседником, и две точки входа в CLI.
+Реальный чат (Этап 8): строгая адресация, дебаунс, Playwright-чтение
+и отправка с имитацией набора — через общий пайплайн ответа.
 
 ## Поток данных (одна реплика)
 
@@ -47,7 +49,29 @@ response_formatter.format_reply(raw, nick)  →  "Ник, реплика"
 
 Подробности поискового флоу — в `docs/search.md`, флоу отказа — в
 `docs/task_guard.md`, флоу памяти — в `docs/memory.md`, отношения — в
-`docs/relationship.md`.
+`docs/relationship.md`, реальный чат — в `docs/chat_integration.md`.
+
+## Реальный чат (одна реплика, main.py)
+
+```
+main.py (цикл опроса)
+    │  poll_new_messages()               # chat_io: DOM -> строки, дедуп
+    │  should_ignore_message             # свои же сообщения и игнор-лист
+    │  parse_addressed_message           # строго "{ник}," -> addressed | log_only
+    │     ├─ log_only ──► log_message в global_chat (в LLM НЕ идёт)
+    │     └─ addressed ──► apply_realtime_updates + debounce_buffer
+    │  раз в N сообщений: run_extraction_cycle      # Этап 6
+    │  debounce.pop_ready ──► handle_addressed_message(log_to_memory=False)
+    │        └─ то же, что в cli.py: guard -> search -> память -> отношения
+    │           -> PromptBuilder -> LLMClient.generate -> format_reply
+    │  send_message(reply)               # печать по словам + Enter
+    │  log_message(ответ бота)
+```
+
+`core/pipeline.py` — общий пайплайн ответа, единый для `cli.py` и
+`main.py`: загрузка конфигов, `MemoryRuntime`/`RelationshipRuntime`,
+`handle_addressed_message(...)`. Логика cli.py по одной реплике
+сохранена, сигнатура `cli.run_once()` не менялась.
 
 ## Компоненты
 
@@ -76,6 +100,11 @@ response_formatter.format_reply(raw, nick)  →  "Ник, реплика"
 | `core/memory/facts_extractor.py` | Пакетная LLM-экстракция фактов из накопленных сообщений (Этап 6). |
 | `core/memory/memory_provider.py` | Реальный `MemoryProvider`: рендер «что знаю о собеседнике» (Этап 6). |
 | `core/response_formatter.py` | Страховочная зачистка сырого ответа и вставка ровно одного ника. |
+| `core/debounce_buffer.py` | Склейка серии коротких сообщений юзера в одну задачу (тишина или потолок), тик-based (Этап 8). |
+| `core/route.py` | Строгая адресация «{ник}, …» и фильтр игнора (Этап 8). |
+| `core/pipeline.py` | Общий пайплайн ответа для `cli.py` и `main.py`: конфиги, рантаймы, `handle_addressed_message` (Этап 8). |
+| `chat_io/chat_client.py` | Playwright-чтение DOM чата, дедуп строк, отправка с имитацией набора (Этап 8). |
+| `chat_io/fake_chat_client.py` | Заглушка `ChatClient` для смоуков без браузера (Этап 8). |
 | `character/character.yaml` | Карточка персонажа: голос, границы, отказы, уклонения, few-shot. |
 
 ## Порядок внедрения будущих этапов
@@ -91,6 +120,10 @@ response_formatter.format_reply(raw, nick)  →  "Ник, реплика"
   одиночного `ScheduleProvider` в `cli.py`. Оценка тона — отдельное
   звено `RelationshipEvaluator` на write-пути, клампинг и фолбэки не
   роняют диалог.
+- Этап 8 (реальный чат) — реализован: прод-вход `main.py` (Playwright,
+  строгая адресация, дебаунс, имитация набора). Ответная цепочка
+  вынесена из `cli.py` в `core/pipeline.py` и общая для обеих точек
+  входа; `cli.py` остаётся для ручной отладки.
 
 `PromptBuilder` при этом не меняется — он зависит только от
 интерфейсов из `core/layers.py`.
