@@ -21,14 +21,21 @@ logger = logging.getLogger(__name__)
 
 PARSE_TIMEOUT_SECONDS = 8.0
 
-# Селекторы — под реальную структуру DOM galaxy.mobstudio.ru; уточнить
-# по месту (ник + видимое время + текст на элемент сообщения).
-DEFAULT_MESSAGE_SELECTOR = ".message"
-DEFAULT_USERNAME_SELECTOR = ".username"
-DEFAULT_TIMESTAMP_SELECTOR = ".timestamp"
-DEFAULT_TEXT_SELECTOR = ".text"
-DEFAULT_INPUT_SELECTOR = ".chat-input"
-DEFAULT_SEND_SELECTOR = None  # None -> отправка по Enter
+# Селекторы — под реальную структуру DOM galaxy.mobstudio.ru:
+# текстовые сообщения в .channel-message.channel-message--text, системные
+# topic/server исключаются, ник и время лежат в
+# .channel-message__content__title, текст — в
+# .channel-message__content__text, поле ввода —
+# .channel-new-message__text-field__input, отправка — по кнопке.
+DEFAULT_MESSAGE_SELECTOR = (
+    ".channel-message.channel-message--text"
+    ":not(.channel-message--topic):not(.channel-message--server)"
+)
+DEFAULT_USERNAME_SELECTOR = ".channel-message__content__title"
+DEFAULT_TIMESTAMP_SELECTOR = ".channel-message__time"
+DEFAULT_TEXT_SELECTOR = ".channel-message__content__text"
+DEFAULT_INPUT_SELECTOR = ".channel-new-message__text-field__input"
+DEFAULT_SEND_SELECTOR = "#channel-new-message__send-button"
 
 
 @dataclass
@@ -160,12 +167,28 @@ class PlaywrightChatClient:
         elements = await self.page.query_selector_all(self.message_selector)
         parsed: list[dict] = []
         for element in elements:
-            username = await self._read_text(element, self.username_selector)
+            username = await self._read_username(element)
             timestamp = await self._read_text(element, self.timestamp_selector)
             text = await self._read_text(element, self.text_selector)
             if username and text:
                 parsed.append({"username": username, "timestamp_raw": timestamp, "text": text})
         return parsed
+
+    async def _read_username(self, element) -> str:
+        """Ник из .channel-message__content__title минус время.
+
+        В DOM ник — текстовый узел внутри того же span, где лежит
+        .channel-message__time: text_content() даёт «02:22\nНик»,
+        поэтому время вырезаем из заголовка.
+        """
+        title = await element.query_selector(self.username_selector)
+        if title is None:
+            return ""
+        full = (await title.text_content() or "").strip()
+        time = await self._read_text(element, self.timestamp_selector)
+        if time:
+            full = full.replace(time, "", 1)
+        return full.strip()
 
     @staticmethod
     async def _read_text(element, selector: str) -> str:

@@ -49,9 +49,9 @@ class FakePage:
     def _element_from_dict(self, d):
         return FakeElement(
             children={
-                ".username": FakeElement(text=d["username"]),
-                ".timestamp": FakeElement(text=d["timestamp_raw"]),
-                ".text": FakeElement(text=d["text"]),
+                ".channel-message__content__title": FakeElement(text=d["username"]),
+                ".channel-message__time": FakeElement(text=d["timestamp_raw"]),
+                ".channel-message__content__text": FakeElement(text=d["text"]),
             }
         )
 
@@ -144,10 +144,20 @@ def test_poll_incremental_via_fake_page():
     assert [m.text for m in second] == ["Анька, ты тут?", "ау"]
 
 
+def test_read_username_strips_time_from_title():
+    async def run():
+        page = FakePage(SNAPSHOT_ONE)
+        page.elements[0].children[".channel-message__content__title"].text = "21:05\nВася"
+        client = PlaywrightChatClient(page, typing_chars_per_second=100.0, typing_jitter=0.0)
+        return await client.poll_new_messages()
+
+    messages = asyncio.run(run())
+    assert len(messages) == 1
+    assert messages[0].username == "Вася"
+
+
 # ---------- send_message: клики и «печать» ----------
-
-
-def test_send_message_types_words_and_presses_enter():
+def test_send_message_clicks_input_then_send_button():
     async def run():
         page = FakePage([])
         client = PlaywrightChatClient(page, typing_chars_per_second=100.0, typing_jitter=0.0)
@@ -155,8 +165,27 @@ def test_send_message_types_words_and_presses_enter():
         return page
 
     page = asyncio.run(run())
-    assert page.clicks == [".chat-input"]
+    assert page.clicks == [
+        ".channel-new-message__text-field__input",
+        "#channel-new-message__send-button",
+    ]
     assert page.typed == ["Вася,", " ", "ну", " ", "ты", " ", "даёшь"]
+
+
+def test_send_message_presses_enter_when_no_send_selector():
+    async def run():
+        page = FakePage([])
+        client = PlaywrightChatClient(
+            page,
+            typing_chars_per_second=100.0,
+            typing_jitter=0.0,
+            send_selector=None,
+        )
+        await client.send_message("Вася, ну ты даёшь")
+        return page
+
+    page = asyncio.run(run())
+    assert page.clicks == [".channel-new-message__text-field__input"]
     assert page.keys_pressed == ["Enter"]
 
 

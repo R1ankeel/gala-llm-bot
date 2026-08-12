@@ -138,6 +138,31 @@ async def run_bot(
         await asyncio.sleep(poll_interval)
 
 
+async def run_live_bot(
+    config: Config,
+    character: Character,
+    chat_config: dict,
+    task_keywords: dict,
+    search_keywords: dict,
+) -> int:
+    """Прод-цикл в ОДНОМ event loop с запуском браузера.
+
+    Нельзя запускать браузер и цикл опроса в разных asyncio.run():
+    каждый asyncio.run() закрывает свой event loop, и Playwright
+    теряет WebSocket-соединение ('NoneType' object has no attribute
+    'send'). Всё — внутри одной корутины.
+    """
+    chat_client = await launch_playwright_chat_client(chat_config)
+    return await run_bot(
+        config,
+        character,
+        chat_config,
+        chat_client,
+        task_keywords,
+        search_keywords,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Прод-точка входа: реальный чат galaxy.mobstudio.ru "
@@ -175,14 +200,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.fake:
             chat_client = FakeChatClient()
             print("dev-режим: FakeChatClient, без браузера.")
-        else:
-            chat_client = asyncio.run(launch_playwright_chat_client(chat_config))
+            return asyncio.run(
+                run_bot(
+                    config,
+                    character,
+                    chat_config,
+                    chat_client,
+                    task_keywords,
+                    search_keywords,
+                )
+            )
         return asyncio.run(
-            run_bot(
+            run_live_bot(
                 config,
                 character,
                 chat_config,
-                chat_client,
                 task_keywords,
                 search_keywords,
             )
